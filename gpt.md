@@ -132,3 +132,101 @@ MySQL 개발자 가이드의 호환성 표에는 아직 EF Core 10이 preview로
 - 환경 확인 및 공식 문서 조사 완료.
 - 패키지 설치, `ApplicationDbContext` 생성, `appsettings.json` 수정은 진행하지 않음.
 - 다음 구현 단계는 사용자 승인 대기.
+
+---
+
+## 후속 작업: NuGet 패키지 설치 완료
+
+작업일: 2026-09-15
+
+사용자 승인에 따라 이번 단계에서는 두 NuGet 패키지 설치와 프로젝트 빌드만 진행했다. 아래 내용은 앞선 사전 조사 이후의 실제 작업 결과다.
+
+### 직접 설치한 패키지
+
+| 패키지 | 설치 버전 | 역할 |
+|---|---|---|
+| `MySql.EntityFrameworkCore` | `10.0.9` | Oracle의 MySQL EF Core Provider. MySQL SQL 생성과 데이터 형식 매핑 등을 담당 |
+| `Microsoft.EntityFrameworkCore.Design` | `10.0.12` | 이후 마이그레이션 등 개발 도구가 모델과 Context를 분석하는 데 필요한 기능 제공 |
+
+두 버전 모두 preview/RC가 아닌 안정 버전이다. Oracle Provider의 `net10.0` 의존성은 EF Core 및 Relational `10.0.9 이상`이며, 이번에 실제 복원된 EF Core `10.0.12`가 이를 충족한다. Design도 .NET 10용 `10.0.12`를 사용한다.
+
+확인 자료: [Oracle Provider 10.0.9](https://www.nuget.org/packages/MySql.EntityFrameworkCore/10.0.9), [Microsoft Design 10.0.12](https://www.nuget.org/packages/Microsoft.EntityFrameworkCore.Design/10.0.12)
+
+### 변경된 DailyRoutine.csproj
+
+기존 `net10.0`, nullable 및 implicit usings 설정은 유지하고 다음 `ItemGroup`만 추가했다.
+
+```xml
+<ItemGroup>
+  <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12">
+    <PrivateAssets>all</PrivateAssets>
+    <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+  </PackageReference>
+  <PackageReference Include="MySql.EntityFrameworkCore" Version="10.0.9" />
+</ItemGroup>
+```
+
+- `PackageReference`: 이 프로젝트가 직접 사용하는 패키지를 선언한다. 직접 참조는 위 두 개뿐이다.
+- `Version`: 요청하는 패키지 버전을 명시한다. 이번 복원에서는 두 패키지 모두 명시한 버전으로 결정되었다.
+- `PrivateAssets=all`: Design을 이 프로젝트 내부 개발 의존성으로 사용하고, 이 프로젝트를 참조하는 다른 프로젝트로 해당 의존성이 전파되지 않게 한다. 현재 프로젝트에서 다운로드하지 않거나 사용하지 않는다는 뜻은 아니다.
+- `IncludeAssets`: Design에서 사용할 자산 종류를 지정한다. 런타임·빌드·분석기 등의 자산을 사용하고 `compile`은 제외하여 일반 애플리케이션 코드에서 Design API를 직접 참조하지 않는 기본 구성으로 설정했다.
+
+### 의존성으로 자동 설치된 패키지
+
+직접 설치는 `csproj`에 `PackageReference`로 선언하는 것이고, 의존성 설치는 그 패키지들이 필요로 하는 하위 패키지를 NuGet이 자동으로 복원하는 것이다. 아래 버전은 실제 `obj/project.assets.json`의 `net10.0` 결과로 확인했다.
+
+| 패키지 | 실제 복원 버전 | 설치 구분과 역할 |
+|---|---|---|
+| `Microsoft.EntityFrameworkCore` | `10.0.12` | 간접 참조. Provider 및 Relational이 요구하는 ORM 본체 |
+| `Microsoft.EntityFrameworkCore.Relational` | `10.0.12` | 간접 참조. Provider와 Design이 요구하는 관계형 DB 공통 기능 |
+| `Microsoft.EntityFrameworkCore.Abstractions` | `10.0.12` | 간접 참조. EF Core 본체가 요구하는 기본 추상화 |
+| `Microsoft.EntityFrameworkCore.Analyzers` | `10.0.12` | 간접 참조. EF Core 본체가 요구하는 코드 분석기 |
+| `MySql.Data` | `26.7.0` | 간접 참조. Oracle Provider가 요구하는 MySQL 통신 드라이버 |
+
+이 외에도 Design이 사용하는 Roslyn 코드 분석·생성 관련 패키지와 Humanizer, MySql.Data가 사용하는 암호화·압축 관련 패키지 등이 자동 복원되었다. 이들 역시 별도의 직접 참조로 추가하지 않았다.
+
+핵심 의존성 관계는 다음과 같다.
+
+```text
+DailyRoutine
+├─ MySql.EntityFrameworkCore 10.0.9 [직접]
+│  ├─ Microsoft.EntityFrameworkCore 10.0.12 [간접]
+│  ├─ Microsoft.EntityFrameworkCore.Relational 10.0.12 [간접]
+│  └─ MySql.Data 26.7.0 [간접]
+└─ Microsoft.EntityFrameworkCore.Design 10.0.12 [직접]
+   └─ Microsoft.EntityFrameworkCore.Relational 10.0.12 [간접]
+      └─ Microsoft.EntityFrameworkCore 10.0.12 [간접]
+```
+
+같은 패키지가 여러 경로에 나와도 중복 버전으로 설치된다는 의미는 아니다. NuGet이 요구 조건을 종합하여 이번에는 EF Core와 Relational 모두 `10.0.12`로 결정했다. Provider의 `10.0.9`는 EF Core도 반드시 `10.0.9`여야 한다는 뜻이 아니다.
+
+`Microsoft.EntityFrameworkCore.Tools`, `dotnet-ef`, Pomelo는 설치하지 않았다. 이후 CLI로 마이그레이션을 실행할 때에는 별도 단계에서 `dotnet-ef` 도구 준비 여부를 확인하면 된다. Design 설치만으로 CLI 도구가 설치되는 것은 아니다.
+
+### 설치 및 검증 결과
+
+두 패키지 참조를 버전을 지정해 추가한 뒤 `dotnet restore DailyRoutine.csproj --verbosity quiet`로 복원했다. Design의 개발 의존성 설정을 반영한 후 아래 명령으로 최종 빌드했다.
+
+```text
+dotnet build DailyRoutine.csproj --verbosity quiet --nologo
+
+빌드 성공
+경고 0개
+오류 0개
+```
+
+`--no-restore`로 참조를 추가할 때 출력된 호환성 검사 생략 안내는 후속 restore와 최종 build 전에 나온 안내다. 최종 restore와 build는 정상 완료되었다.
+
+초기 실행은 사용자 프로필의 .NET 초기화 파일 접근 제한으로 실패하여 권한 승인 후 다시 실행했다. 이 과정에서 .NET CLI의 최초 실행 초기화가 수행되었고, CLI는 ASP.NET Core HTTPS 개발 인증서를 설치했다고 출력했다. 별도의 인증서 신뢰 명령은 실행하지 않았다.
+
+최종 빌드는 패키지 복원과 컴파일의 성공을 확인한 것이다. 아직 MySQL 서버 접속이나 SQL 실행을 검증한 것은 아니다.
+
+### 이번 단계의 변경 범위와 다음 상태
+
+- 소스 관리 대상 변경: `DailyRoutine.csproj`, 기존 조사 문서 `gpt.md`.
+- 패키지 복원 및 빌드에 따른 `obj`와 `bin` 산출물 생성·갱신.
+- `ApplicationDbContext`는 생성하지 않았다.
+- `Program.cs`와 `appsettings.json`은 수정하지 않았다.
+- Migration은 생성하지 않았고 DB 변경도 수행하지 않았다.
+- 이번 패키지 설치 단계 완료. 다음 단계는 사용자 승인 대기.
+
+문서는 기존 파일명 `gpt.md`에 이어서 기록했다. 현재 Windows 작업 환경에서는 요청한 `GPT.md`와 동일한 파일을 가리킨다.
