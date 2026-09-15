@@ -230,3 +230,103 @@ dotnet build DailyRoutine.csproj --verbosity quiet --nologo
 - 이번 패키지 설치 단계 완료. 다음 단계는 사용자 승인 대기.
 
 문서는 기존 파일명 `gpt.md`에 이어서 기록했다. 현재 Windows 작업 환경에서는 요청한 `GPT.md`와 동일한 파일을 가리킨다.
+
+---
+
+## 후속 작업: ApplicationDbContext 정의 완료
+
+작업일: 2026-09-15
+
+사용자 승인에 따라 `Data/ApplicationDbContext.cs`를 생성했다. 이번 단계의 목표는 EF Core가 `Routine`을 관리할 Context 클래스를 정의하는 것까지다.
+
+### 구현한 코드의 구조
+
+실제 파일에는 각 구성 요소의 역할을 설명하는 한글 주석을 작성했다. 핵심 구조는 다음과 같다.
+
+```csharp
+using DailyRoutine.Models.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace DailyRoutine.Data
+{
+    public class ApplicationDbContext : DbContext
+    {
+        public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
+            : base(options)
+        {
+        }
+
+        public DbSet<Routine> Routines => Set<Routine>();
+    }
+}
+```
+
+### 각 코드가 EF Core에서 하는 일
+
+| 코드 | 역할 |
+|---|---|
+| `using DailyRoutine.Models.Entities;` | 기존 `Routine` 엔티티 형식을 사용한다. 이 using 자체가 엔티티를 등록하는 것은 아니다. |
+| `using Microsoft.EntityFrameworkCore;` | `DbContext`, `DbContextOptions<TContext>`, `DbSet<TEntity>`를 사용한다. |
+| `namespace DailyRoutine.Data` | 데이터 접근을 담당하는 형식을 프로젝트의 Data 네임스페이스로 묶는다. |
+| `ApplicationDbContext : DbContext` | EF Core의 조회, 모델 관리, 변경 추적, 저장 기능을 상속한다. |
+| `DbContextOptions<ApplicationDbContext> options` | 이 Context에 사용할 설정을 외부에서 받는다. 이후 Provider와 연결 정보 등을 설정할 수 있다. |
+| `: base(options)` | 전달받은 설정을 부모 `DbContext` 생성자에 넘긴다. 실제 설정의 사용은 EF Core가 담당한다. |
+| `DbSet<Routine>` | `Routine`을 모델에 포함시키고 해당 엔티티를 조회하거나 추가·삭제 대상으로 등록하는 진입점을 제공한다. |
+| `Routines => Set<Routine>()` | 현재 Context가 관리하는 Routine용 DbSet을 반환하는 읽기 전용 속성이다. 직접 `new DbSet`을 하거나 null 초기값을 둘 필요가 없다. |
+
+생성자 주입은 클래스 내부에서 설정을 만드는 대신 외부에서 설정을 받는 방식이다. 현재 생성자는 주입을 받을 수 있도록 준비되었지만, `Program.cs`에서 DI 컨테이너에 등록하는 작업은 아직 하지 않았다.
+
+`Routines` 속성이 읽기 전용이라는 것은 DbSet 자체를 다른 값으로 대입할 수 없다는 뜻이다. 향후 `Routines.Add(...)`처럼 DbSet의 메서드를 사용하는 것은 가능하다.
+
+### 모델 등록과 실제 DB 작업의 차이
+
+- 공개된 `DbSet<Routine>` 속성을 통해 EF Core가 모델을 구성할 때 Routine을 발견한다.
+- 기본 관례에서는 `Routine.Id`를 기본 키로 인식한다. 별도 테이블 매핑이 없다면 관계형 매핑의 테이블 이름은 DbSet 속성명인 `Routines`를 따른다.
+- 이것은 모델의 정의다. Context 파일이나 DbSet을 선언한다고 MySQL에 테이블이 만들어지지는 않는다.
+- `Routines` 속성을 읽는 것만으로 전체 루틴을 조회하지 않는다. 이후 Provider가 설정된 상태에서 쿼리를 실행할 때 실제 조회가 이루어진다.
+- 추가·삭제 대상으로 등록하거나 추적 중인 엔티티의 속성을 변경한 뒤 `SaveChangesAsync()` 등을 호출해야 해당 변경을 저장한다.
+- 이번 단계에서는 Provider 설정, Context 인스턴스의 런타임 모델 검증, SQL 실행을 하지 않았다.
+
+### Spring Boot / JPA와 비교
+
+| Spring / JPA 개념 | 이번 구현에서 가까운 개념 | 공통점과 차이 |
+|---|---|---|
+| `EntityManager` | `ApplicationDbContext` 인스턴스 | 조회와 엔티티 상태 관리, 변경 추적, 저장을 담당한다. Context가 EntityManager에 가장 가깝다. |
+| 영속성 컨텍스트 | DbContext 내부의 변경 추적 기능 | 관리하는 엔티티와 그 상태를 기억한다. EF Core에서는 ChangeTracker를 통해 추적 상태를 다룬다. |
+| `JpaRepository<Routine, Integer>` | `DbSet<Routine>`과 DbContext의 기본 기능 일부 | DbSet은 루틴 조회·추가·삭제의 진입점이고 저장은 Context가 담당한다. Spring Data처럼 메서드 이름을 해석해 Repository 구현을 자동 생성하지 않는다. |
+| 생성자 주입 | `DbContextOptions<ApplicationDbContext>`를 받는 생성자 | 외부에서 의존성을 전달받는 원리는 같다. 여기서는 EntityManager 자체가 아니라 Context를 구성할 설정을 전달받는다. |
+
+예를 들어 이후 루틴 이름을 수정할 때에는 Context로 엔티티를 추적 조회하고, `Name`을 바꾼 다음 `SaveChangesAsync()`로 저장할 수 있다. JPA에서 관리 중인 엔티티의 변경을 감지하는 흐름과 비슷하다.
+
+다만 `SaveChangesAsync()`를 JPA의 `flush()`나 트랜잭션 commit과 완전히 같은 것으로 보면 안 된다. EF Core는 명시적인 저장 호출을 통해 변경을 반영하며, 트랜잭션의 경계는 별도로 고려한다. 요청이 끝났다는 이유만으로 자동 저장되는 것은 아니다.
+
+따라서 이번 단계에서는 별도의 `RoutineRepository`를 만들 필요가 없다. 애플리케이션 구조상 필요해질 때 Context를 감싸는 Repository를 추가할 수 있다.
+
+학습 참고 자료:
+
+- [Microsoft DbContext 구성과 수명](https://learn.microsoft.com/en-us/ef/core/dbcontext-configuration/)
+- [Microsoft 엔티티 형식과 테이블 매핑](https://learn.microsoft.com/en-us/ef/core/modeling/entity-types)
+- [JPA EntityManager API](https://jakarta.ee/specifications/persistence/3.2/apidocs/jakarta.persistence/jakarta/persistence/entitymanager)
+- [Spring Data JPA](https://docs.spring.io/spring-data/jpa/reference/jpa.html)
+
+### 빌드 확인
+
+기존에 복원한 패키지를 사용하여 컴파일 오류 여부만 확인했다.
+
+```text
+dotnet build DailyRoutine.csproj --no-restore --verbosity quiet --nologo
+
+빌드 성공
+경고 0개
+오류 0개
+```
+
+이 결과는 Context 코드가 컴파일된다는 의미이며, 실제 MySQL 접속이나 모델 매핑·SQL 실행의 성공을 검증한 것은 아니다.
+
+### 변경 범위와 다음 상태
+
+- 생성: `Data/ApplicationDbContext.cs`.
+- 학습 기록 추가: 기존 `gpt.md`.
+- `Program.cs`, `appsettings.json`, `DailyRoutine.csproj`는 이번 단계에서 수정하지 않았다.
+- MySQL 연결 및 Migration 생성은 진행하지 않았다.
+- ApplicationDbContext 정의 단계 완료. 다음 단계는 사용자 승인 대기.
