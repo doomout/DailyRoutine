@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>DailyRoutine-613431d6-1751-44c5-bc2d-c45f70e14f49</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

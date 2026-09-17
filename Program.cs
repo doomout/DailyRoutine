@@ -1,4 +1,16 @@
+using DailyRoutine.Data;
+using Microsoft.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
+
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException("ConnectionStrings:DefaultConnection is required.");
+}
+
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseMySQL(connectionString));
 
 // Add services to the container.
 builder.Services.AddControllersWithViews();
