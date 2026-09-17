@@ -1,21 +1,21 @@
 # DailyRoutine 프로젝트 현황
 
-분석 기준일: 2026-09-17 (Asia/Seoul)  
-기준 커밋: `c3ff204` — ApplicationDbContext 정의 완료  
-분석 방법: 저장소의 소스·설정·뷰·정적 자산·설계 및 학습 기록 정적 분석
+갱신 기준일: 2026-09-18 (Asia/Seoul)
+기준 커밋: `5d09089` — MySQL Docker 환경 및 EF Core 연결 설정. 이후 작업 트리의 InitialCreate 적용 결과 포함
+확인 방법: 기존 소스 분석 + EF Core Migration 실제 적용 + 일반 사용자로 MySQL 스키마 조회
 
 ## 1. 현재 상태와 분석 범위
 
-**현재는 ASP.NET Core MVC 기본 화면에 Routine 엔티티와 EF Core DbContext 정의를 추가한 초기 개발 단계다. 실제 루틴을 등록·조회·저장하는 사용자 기능은 아직 없다.**
+**DailyRoutine 전용 MySQL, User Secrets, DbContext DI 및 Oracle Provider 설정을 완료했고 InitialCreate를 실제 DB에 적용했다. Routines와 __EFMigrationsHistory가 존재하며 루틴 데이터는 0건이다. 실제 루틴을 등록·조회·저장하는 사용자 기능은 아직 없다.**
 
 요청 항목에 Spring Security/JWT가 포함되어 있지만, 이 저장소는 Spring/Java 프로젝트가 아니다. 백엔드는 C#/.NET 10, 프론트엔드는 같은 프로젝트의 Razor View다. 인증 관련 항목은 실제 ASP.NET Core 구현을 기준으로 아래에 정리했다.
 
 - 확인 범위: 솔루션/프로젝트, 전체 애플리케이션 C# 코드, Razor View, 자체 CSS/JavaScript, 설정 파일, 프론트 라이브러리 참조, README.md, DESIGN.md, gpt.md, 테스트·Migration·배포 파일 존재 여부.
 - `bin/`, `obj/`, `.vs/`는 빌드·IDE 산출물로 보며 기능 구현의 근거로 사용하지 않았다. 외부 라이브러리 전체에 대한 보안·품질 감사는 수행하지 않았다.
-- 이번 작업은 분석 및 본 문서 작성만 수행했다. 기존 코드·설정·문서를 수정하지 않았고 파일 이동, 리팩터링, 기능 추가도 하지 않았다.
-- 빌드, 패키지 복원/설치, 서버 실행, 브라우저 조작, 자동화 테스트 실행, DB 접속 및 Migration 적용은 수행하지 않았다.
+- 이번 갱신에서는 승인된 InitialCreate를 EF CLI로 적용하고 DB를 조회한 뒤 gpt.md와 본 문서를 수정했다. Entity, Context, Migration 내용 및 Docker 구성은 변경하지 않았다.
+- EF CLI 10.0.12의 database update 과정에서 빌드 및 DB 접속·Migration 적용에 성공했다. 웹 서버·브라우저·CRUD 및 자동화 테스트 검증은 수행하지 않았다.
 - 따라서 아래의 **화면 연결 완료**는 소스상 요청부터 View까지 연결되었다는 뜻이다. 현재 환경에서 직접 실행해 사용 가능성을 검증했다는 뜻은 아니다.
-- 실제 MySQL 서버의 존재·버전·테이블·데이터는 미확인이다. 코드의 Entity 정의를 실존 DB 테이블로 간주하지 않는다.
+- MySQL 8.4.11과 실제 테이블·컬럼·키·Migration 이력 및 Routines 0건을 일반 사용자로 확인했다. 세부 결과는 6절에 기록했다.
 
 상태 구분:
 
@@ -34,13 +34,13 @@
 | 백엔드 | ASP.NET Core MVC, C#, `net10.0` | `DailyRoutine.csproj`, `Program.cs` |
 | 언어 설정 | nullable, implicit usings 활성화 | `DailyRoutine.csproj` |
 | DB 접근 준비 | `Microsoft.EntityFrameworkCore.Design` 10.0.12, `MySql.EntityFrameworkCore` 10.0.9 직접 참조 | `DailyRoutine.csproj` |
-| DB 연결 | MySQL 사용 예정. Provider 설정·DI 등록·연결 문자열 없음 | `Program.cs`, `appsettings*.json`, `ApplicationDbContext.cs` |
+| DB 연결 | MySQL 8.4.11 연결 완료. AddDbContext/UseMySQL 및 User Secrets 사용 | `Program.cs`, `appsettings*.json`, `ApplicationDbContext.cs` |
 | 프론트엔드 | 서버 렌더링 Razor, HTML/CSS/JavaScript | `Views/`, `wwwroot/` |
 | UI 라이브러리 | Bootstrap 5.3.3, jQuery 3.7.1 | 로컬 배포 파일 헤더 및 `_Layout.cshtml` |
 | 입력 검증 라이브러리 | jQuery Validation 1.21.0, Unobtrusive Validation 4.0.0 파일 보유 | `wwwroot/lib/`, `_ValidationScriptsPartial.cshtml` |
 | 프론트 빌드 | 별도 React/Vue/SPA 프로젝트나 package.json 없음 | 파일 목록 |
 | 개발 실행 주소 | HTTP `http://localhost:5280`, HTTPS `https://localhost:7214` | `Properties/launchSettings.json`; 실제 가동 여부 미확인 |
-| 배포 | Dockerfile, Compose, CI 워크플로, 별도 운영 배포 구성 미구현 | 저장소 파일 목록 |
+| 배포 | DB 전용 compose.yaml 존재. 웹앱 Dockerfile·CI·운영 배포는 미구현 | 저장소 파일 목록 |
 
 ```text
 DailyRoutine/
@@ -65,6 +65,9 @@ DailyRoutine/
 │  ├─ js/site.js
 │  ├─ lib/                  # Bootstrap, jQuery, 검증 라이브러리
 │  └─ favicon.ico
+├─ Migrations/                  # InitialCreate 및 ModelSnapshot
+├─ compose.yaml                 # 전용 MySQL
+├─ dotnet-tools.json             # 로컬 dotnet-ef 10.0.12
 ├─ Properties/launchSettings.json
 ├─ Program.cs
 ├─ appsettings.json
@@ -118,7 +121,7 @@ DailyRoutine/
 | 홈 | `HomeController.Index` | 없음 | 없음 | 없음 | 전용 모델 없음. View에서 제목 설정 |
 | 개인정보 | `HomeController.Privacy` | 없음 | 없음 | 없음 | 전용 모델 없음. View에서 제목 설정 |
 | 오류 | `HomeController.Error` | 없음 | 없음 | 없음 | `ErrorViewModel` |
-| 루틴 데이터 구조 준비 | 없음 | 없음 | `ApplicationDbContext.Routines` 정의만 있음 | `Routine` | 없음 |
+| 루틴 데이터 구조 준비 | 없음 | 없음 | `ApplicationDbContext.Routines` 및 DB 연결·테이블 준비 완료 | `Routine` | 없음 |
 | 루틴 CRUD | 없음 | 없음 | 호출 코드 없음 | `Routine`만 준비됨 | 없음 |
 | 오늘의 루틴·완료 기록·날짜별 기록 | 없음 | 없음 | 없음 | 없음 | 없음 |
 | 반복 주기·통계 | 없음 | 없음 | 없음 | 없음 | 없음 |
@@ -128,39 +131,44 @@ DailyRoutine/
 
 - `ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)`는 설정을 받아 부모 DbContext에 전달한다.
 - `DbSet<Routine> Routines => Set<Routine>()`는 엔티티 접근 지점 정의다. 속성 선언만으로 조회·테이블 생성·데이터 저장이 수행되지 않는다.
-- `OnModelCreating`, 별도 Entity Configuration, Provider를 지정하는 `OnConfiguring`, DI 등록, 실제 LINQ 조회 및 `SaveChanges/SaveChangesAsync` 호출은 없다.
+- `Program.cs`에서 AddDbContext와 UseMySQL을 등록했다. 별도 OnModelCreating/Entity Configuration/OnConfiguring, 업무 LINQ 조회 및 SaveChanges 호출은 없다.
 - `ErrorViewModel.RequestId`는 `string?`, `ShowRequestId`는 RequestId가 비어 있지 않은지 판단하는 읽기 전용 속성이다. DB Entity나 REST API DTO가 아니라 오류 화면 출력 모델이다.
 - `HomeController.Error()`는 `Activity.Current?.Id ?? HttpContext.TraceIdentifier`로 요청 식별자를 전달한다.
 - 별도 Repository가 없다는 사실 자체는 오류가 아니다. `DESIGN.md`도 초기에는 Service에서 DbContext를 사용하는 구조를 제안한다.
 
 ## 6. DB 테이블, 주요 컬럼 및 관계
 
-### 6.1 실제 DB 확인 상태
+### 6.1 실제 DB 및 연결 상태
 
-**저장소에서 확정할 수 있는 것은 Routine 모델과 DbSet 정의뿐이다. 생성된 실제 DB 테이블은 확인하지 않았다.**
+- 컨테이너: `dailyroutine-mysql`, MySQL `8.4.11`, 호스트 `127.0.0.1:3308` → 컨테이너 `3306`.
+- DB: `dailyroutine`, 일반 사용자: `dailyroutine_user` (`CURRENT_USER()` 확인).
+- 실제 연결 문자열은 User Secrets의 `ConnectionStrings:DefaultConnection`에만 저장한다. 두 appsettings 파일에는 기록하지 않는다. `.env`는 Git 제외 상태다.
+- Program.cs는 GetConnectionString, AddDbContext<ApplicationDbContext>, Oracle UseMySQL을 사용한다.
+- 로컬 dotnet-ef / EF Core / Design: `10.0.12`, Oracle MySql.EntityFrameworkCore: `10.0.9`.
+- 적용 명령: `dotnet ef database update InitialCreate --project DailyRoutine.csproj --startup-project DailyRoutine.csproj --context ApplicationDbContext -- --environment Development`.
+- 적용 완료: `20260917145307_InitialCreate`. 이력 ProductVersion: `10.0.12`.
+- 테이블 목록: `Routines`, `__EFMigrationsHistory` (모두 InnoDB).
+- DB와 두 테이블의 기본 문자셋/Collation: `utf8mb4` / `utf8mb4_unicode_ci`.
+- `Routines` 데이터: 0건. 루틴 INSERT 및 CRUD 검증은 수행하지 않았다.
+- 앱 시작 시 Migrate/EnsureCreated 자동 호출은 없다. 이번 적용은 승인된 EF CLI 실행으로만 수행했다.
 
-- 두 appsettings 파일에 ConnectionStrings가 없다.
-- `Program.cs`에 `AddDbContext<ApplicationDbContext>` 및 MySQL Provider 설정이 없다.
-- Migration, ModelSnapshot, 스키마 SQL, Seed 코드가 없다.
-- 앱 시작 시 `Migrate`, `EnsureCreated`를 호출하는 코드도 없다.
-- 외부에서 만든 DB/테이블이나 별도 환경 설정 존재 여부는 이번 범위에서 확인하지 않았다.
+### 6.2 실제 Routines 스키마
 
-### 6.2 현재 모델이 표현하는 테이블 후보
+| 컬럼 | C# 형식 | MySQL 타입 | NULL 허용 | 실제 제약/의미 |
+|---|---|---|---|---|
+| Id | int | int | 아니요 | PRIMARY KEY, AUTO_INCREMENT |
+| Name | required string | longtext | 아니요 | utf8mb4_unicode_ci, 공백/길이 검증 없음 |
+| Description | string? | longtext | 예 | utf8mb4_unicode_ci |
+| StartDate | required DateOnly | date | 아니요 | 날짜만 저장 |
+| EndDate | DateOnly? | date | 예 | DEFAULT NULL |
+| CreatedAtUtc | DateTime | datetime(6) | 아니요 | DB 기본값 없음 |
+| UpdatedAtUtc | DateTime? | datetime(6) | 예 | DEFAULT NULL, 자동 갱신 없음 |
 
-`ApplicationDbContext.Routines` 기준으로 향후 관례 매핑에서 예상되는 테이블명은 `Routines`다. 명시적 테이블명, SQL 자료형, 길이, 인덱스, DB 기본값은 아직 확정된 스키마가 아니다.
+`SHOW CREATE TABLE Routines`에서 위 타입과 NULL 제약을 확인했다. Migration의 CreateTable은 실제 Routines 테이블에, IdentityColumn은 AUTO_INCREMENT에 대응한다. PrimaryKey의 모델 이름은 PK_Routines지만 MySQL의 실제 기본 키 인덱스 이름은 PRIMARY다. Migration의 utf8mb4 annotation과 실제 문자셋이 일치한다. 적용 로그에는 별도 ALTER DATABASE나 명시적 COLLATE가 없었으며 실제 테이블은 기존 DB 기본값 utf8mb4_unicode_ci를 사용한다.
 
-| 속성/컬럼 후보 | C# 형식 | null 의도 | 현재 정의와 제약 상태 |
-|---|---|---|---|
-| `Id` | `int` | 불가 | 관례상 기본 키 후보. 실제 AUTO_INCREMENT DDL은 없음 |
-| `Name` | `required string` | 비-null 의도 | 생성 시 지정 요구. 빈 문자열·공백 및 최대 길이 검증 없음 |
-| `Description` | `string?` | 허용 | 선택 설명. 최대 길이/SQL 자료형 미지정 |
-| `StartDate` | `required DateOnly` | 불가 | 생성 시 지정 요구. 업무상 유효 날짜 검증 없음 |
-| `EndDate` | `DateOnly?` | 허용 | 종료 없음은 null로 표현하려는 설계. 시작일 이후인지 검증 없음 |
-| `CreatedAtUtc` | `DateTime` | 불가 | 객체 생성 시 `DateTime.UtcNow`. DB 기본값이나 실제 INSERT 시각은 아님 |
-| `UpdatedAtUtc` | `DateTime?` | 허용 | 초기 null. 수정 시 자동 갱신하는 코드 없음 |
+CreatedAtUtc의 DateTime.UtcNow는 C# 객체 초기값으로만 동작한다. 실제 DDL에는 DEFAULT CURRENT_TIMESTAMP가 없다. datetime(6)은 초 소수부 6자리 정밀도이며 시간대/DateTime.Kind 자체는 저장하지 않는다. nullable:true는 NULL 허용으로 반영되며 longtext의 Description은 SHOW CREATE TABLE에서 명시적인 DEFAULT NULL 없이도 nullable이다.
 
-`required` 및 nullable 선언을 입력값 검증 전체로 보아서는 안 된다. 날짜 범위·공백·길이·UTC 보존 등은 향후 업무 처리와 DB 매핑에서 검증해야 한다. `DateOnly` 및 날짜/시각 컬럼의 실제 MySQL 매핑은 연결 후 검증이 필요하다.
-
+Migration의 Up은 적용 작업, Down은 Routines 삭제 작업이다. 이번에는 Up만 적용했다. ModelSnapshot은 이후 Migration 생성 시 비교할 모델 기준이며 실제 DB 덤프가 아니다. EF가 별도로 관리하는 __EFMigrationsHistory는 적용 이력을 보관한다.
 ### 6.3 현재 관계와 예정 관계
 
 현재 Entity는 `Routine` 하나이며 외래 키, 탐색 속성, 엔티티 간 관계가 없다. 사용자 소유자를 나타내는 `UserId`도 없다.
@@ -225,7 +233,7 @@ DailyRoutine/
 | 기능 | 백엔드 상태 | 프론트 상태 | 종합 |
 |---|---|---|---|
 | Routine 모델 | 7개 속성 정의 | 표시/입력 없음 | 모델 정의 완료 |
-| EF Core/MySQL 연결 | 패키지와 Context만 존재 | 관련 업무 화면 없음 | 부분 구현 |
+| EF Core/MySQL 연결 | DI·Provider·User Secrets·Migration DB 적용 완료 | 관련 업무 화면 없음 | 기반 완료, CRUD 미구현 |
 | 루틴 목록·등록·수정·삭제/종료 | Entity 외 처리 없음 | 화면 없음 | 미구현 |
 | 오늘의 수행 대상 조회 | 날짜 계산·조회 없음 | 화면 없음 | 미구현 |
 | 완료·미완료 저장 | 기록 Entity/처리 없음 | 체크 UI 없음 | 미구현 |
@@ -235,11 +243,11 @@ DailyRoutine/
 | 연속 달성 일수 | 계산 없음 | 표시 없음 | 미구현 |
 | 로그인·회원가입·관리자 | 관련 코드 없음 | 관련 화면 없음 | 미구현, 개인용 초기 범위에서는 보류 |
 | 개인정보 정책 | 정적 View 반환 | 템플릿 문구만 표시 | 내용 부분 구현 |
-| Docker/운영 배포 | 구성 없음 | 해당 없음 | 미구현 |
+| Docker/운영 배포 | 전용 MySQL Compose 준비 완료 | 해당 없음 | 웹앱 운영 배포 미구현 |
 
 ### 9.2 코드가 있으나 프론트에서 사용할 수 없는 것
 
-- `Routine`과 `ApplicationDbContext.Routines`: 데이터 구조와 접근 지점만 있다. Controller/Service/DB 설정/화면이 없어 사용자가 조회·저장할 수 없다. 완성된 숨은 CRUD API가 있는 것은 아니다.
+- `Routine`과 `ApplicationDbContext.Routines`: 데이터 구조와 접근 지점만 있다. Controller/Service/화면이 없어 사용자가 조회·저장할 수 없다. 완성된 숨은 CRUD API가 있는 것은 아니다.
 - `HomeController.Error`: 일반 메뉴는 없지만 직접 URL과 오류 처리에서 사용하므로 연결 누락으로 분류하지 않는다.
 - 프론트에서 호출하지 않는 **완성된 업무 API는 없다**.
 
@@ -257,7 +265,7 @@ DailyRoutine/
 | HomeController 및 페이지 | 없음 | 소스상 액션/View/내비게이션 연결 |
 | ErrorViewModel / 오류 처리 | 없음 | 식별자 전달 및 캐시 속성 정의 |
 | Routine 기본값·검증 | 없음 | 속성 선언 및 초기값 |
-| DbContext·MySQL 매핑·CRUD | 없음 | Context 정의만 확인 |
+| DbContext·MySQL 매핑·CRUD | 없음 | EF CLI 적용 및 실제 스키마 조회 완료. CRUD 미검증 |
 | 사용자·권한 | 없음 | 기능 자체 미구현 |
 | 프론트/E2E | 없음 | 자체 JavaScript 로직 및 테스트 구성 없음 |
 | CI 테스트 | 없음 | 워크플로/테스트 프로젝트 없음 |
@@ -268,7 +276,7 @@ DailyRoutine/
 
 기능 추가 시 필요한 검증 후보:
 
-1. DB 연결 및 Migration 적용 후 실제 MySQL에서 Routine 저장·조회, DateOnly/null/한글 데이터 매핑 확인.
+1. DB 연결·Migration 적용·스키마 검증은 완료. 다음 단계에서 승인 후 Routine 저장·조회 및 DateOnly/null/한글 값 왕복 검증.
 2. 이름 공백/길이, 시작일/종료일 역전, 존재하지 않는 ID 등 입력·경계 조건.
 3. 등록→목록→수정→삭제/종료의 화면부터 DB까지 왕복 확인.
 4. 수행 기록 구현 후 동일 루틴·날짜 중복 방지와 완료/미완료 재요청의 일관성.
@@ -282,27 +290,27 @@ DailyRoutine/
 | 구분 | 발견 내용과 근거 | 영향 / 후속 처리 후보 |
 |---|---|---|
 | 확인된 접근성 오류 | `_Layout.cshtml:17`의 `aria-controls="navbarSupportedContent"`와 일치하는 id가 메뉴 컨테이너에 없음 | 보조 기술의 제어 대상 참조 불일치. Bootstrap의 class 선택자 기반 collapse 동작과는 별개로 연결 수정 필요 |
-| 확인된 문서 오류 | README.md의 프로젝트 구조용 코드 펜스가 닫히지 않음 | 현재 문서의 형식 불완전. 후속 내용 추가 시 코드 블록으로 오인될 수 있음 |
+| README 재검토 | 작업 시작 전부터 README.md에 사용자 변경이 존재 | 이번에는 수정하지 않았으며 과거 형식 오류 판정은 재확인하지 않음 |
 | 문서 최신화 필요 | DESIGN.md의 현재 상태 설명은 패키지/Entity/DbContext가 없다고 서술 | 지금 코드와 불일치. 계획/과거 분석과 현재 상태를 구분해야 함 |
-| 문서 최신화 필요 | README 구조에 Data가 빠져 있고 gpt.md 앞부분은 설치 전 상태, 뒤에는 완료 기록이 누적됨 | 진행 상황은 최신 후속 기록과 본 문서를 기준으로 판단해야 함 |
+| 학습 기록 구분 | gpt.md는 과거 조사와 후속 완료 기록을 누적 | 현재 상태는 최신 날짜의 기록과 본 문서를 기준으로 판단 |
 | 주석 최신화 필요 | Routine.cs:5는 이후 DbContext 등록이라고 설명하지만 현재 DbSet 선언은 존재 | 모델 포함과 실제 DB 연결/테이블 생성을 구분하여 주석 갱신 후보 |
-| 핵심 구현 공백 | Context DI 등록·Provider·연결 정보·매핑·Migration·호출 코드 없음 | 영속화 불가. 현재 Home 화면은 Context를 사용하지 않아 이것만으로 즉시 고장난 것은 아님 |
+| 핵심 구현 공백 | DB 기반은 완료했지만 업무 Controller/Service 및 조회·저장 호출 없음 | 사용자가 루틴을 관리하는 흐름은 아직 미구현 |
 | 검증 구현 공백 | Name의 공백/길이 및 날짜 범위 검증 없음 | CRUD 도입 전에 입력 ViewModel/업무 검증 및 DB 제약 정의 필요 |
 | 시각 처리 공백 | CreatedAtUtc는 객체 생성 시각, UpdatedAtUtc는 자동 갱신되지 않음 | 저장·수정 시각의 의미와 UTC/사용자 날짜 처리 정책 확정 필요 |
 | 사용자 보호 미구현 | 인증·정책·소유자 모델 없음 | 개인용 초기 범위에서는 미구현 상태. 외부 공개/다중 사용자 단계에 접근 보호 설계 필요 |
 | 화면 콘텐츠 미완성 | Welcome, Privacy, Error에 기본 템플릿 문구 사용 | 루틴 서비스 화면 및 실제 안내 문구로 교체할 후속 작업 필요 |
-| 품질 검증 공백 | 자동화 테스트 및 이번 런타임/DB 검증 없음 | 연결 단계부터 핵심 흐름 및 날짜·중복 경계 검증 필요 |
+| 품질 검증 공백 | 스키마 검증 완료, 자동화 테스트와 CRUD·브라우저 검증 없음 | 향후 핵심 흐름 및 날짜·중복 경계 검증 필요 |
 
-패키지 버전 숫자가 서로 다르다는 사실만으로 호환성 오류라고 판정하지 않는다. 이번 분석에서는 패키지를 복원하거나 Provider를 구동하지 않았으며 새 호환성·취약점 감사를 수행하지 않았다.
+패키지 버전 숫자가 서로 다르다는 사실만으로 호환성 오류라고 판정하지 않는다. 현재 조합으로 Migration 생성·빌드·DB 적용에 성공했다. 별도 취약점 감사는 수행하지 않았다.
 
 ## 12. 다음 개발 후보와 문서 관리 기준
 
-현재 코드와 기존 설계의 진행 순서를 고려하면 **다음 최소 개발 단위는 ApplicationDbContext를 실제 MySQL에 연결하는 작업**이다. 아래는 분석 결과에 따른 후보이며 이번에 구현한 내용이 아니다.
+현재 코드와 기존 설계의 진행 순서를 고려하면 **다음 개발 후보는 루틴 목록·등록 기능**이다. 아래는 분석 결과에 따른 후보이며 이번에 구현한 내용이 아니다.
 
 | 순서 | 개발 후보 | 완료 판단 기준 |
 |---|---|---|
-| 1 | MySQL 연결 설정 및 Context DI 등록 | 실행 환경의 Provider·연결 설정으로 DB 접근이 확인됨 |
-| 2 | Routine 매핑과 첫 Migration | 테이블/자료형/키/길이/null 제약을 검토하고 실제 DB 적용 확인 |
+| 완료 | MySQL 연결 설정 및 Context DI 등록 | EF CLI가 일반 사용자로 실제 DB 접근·적용 성공 |
+| 완료 | Routine 기본 매핑과 첫 Migration | 실제 테이블/자료형/키/null 제약 검증 완료. 길이 제한은 아직 미설정 |
 | 3 | 루틴 목록·등록 | Controller→Service→DbContext→MySQL→View 흐름으로 등록 후 조회 가능 |
 | 4 | 루틴 수정·삭제/종료 | 입력 검증, 없는 ID 처리, 기록 보존 정책을 포함해 화면에서 사용 가능 |
 | 5 | RoutineRecord 및 오늘의 루틴·완료 기록 | 날짜별 유일 제약과 완료/미완료 저장, 오늘 대상 계산 가능 |
@@ -322,7 +330,10 @@ DailyRoutine/
 
 | 구분 | 현재 상태 |
 |---|---|
-| **완료된 기능** | MVC 기본 라우팅, Home/Privacy/Error의 액션·View 연결, 공통 메뉴·레이아웃·정적 자산 구성, 기본 오류 처리 구성. 개발 기반으로 Routine 7개 속성과 ApplicationDbContext 정의, EF Core/MySQL 패키지 참조 완료. 실행 검증은 이번에 하지 않음 |
-| **부분 구현된 기능** | 루틴 영속화 기반(모델/Context/패키지만 존재), 개인정보 화면 콘텐츠(템플릿만 존재). 사용자 관점의 루틴 CRUD는 미구현 |
-| **미구현 기능** | MySQL 런타임 연결·명시적 매핑·Migration, 루틴 CRUD, 오늘 목록, 완료/미완료 기록, 날짜별 이력, 반복 일정, 통계·연속 달성, 로그인·회원가입·관리자·JWT, 자동화 테스트, Docker/운영 배포. 계정 기능은 초기 개인용 범위에서 보류 |
-| **다음 개발 후보** | MySQL 연결/DI → Routine 매핑·첫 Migration → 목록·등록 → 수정·삭제/종료 → 수행 기록·오늘 화면 → 반복 일정·통계. 각 단계에서 필요한 검증 추가 |
+| 완료 | MVC 기본 화면·라우팅, Routine/DbContext, 전용 MySQL Docker, User Secrets, DI/Oracle Provider, 로컬 dotnet-ef 10.0.12, InitialCreate 생성·실제 적용·스키마 검증 |
+| 실제 DB | Routines 및 __EFMigrationsHistory 존재. InitialCreate 이력 1건, 루틴 데이터 0건 |
+| 미구현 | 루틴 CRUD·업무 화면·입력 검증, 수행 기록, 반복 일정, 통계, 로그인/사용자별 분리, 자동화 테스트, 웹앱 운영 배포 |
+| 검증 한계 | EF CLI 빌드·접속·스키마 확인 완료. 웹 화면/CRUD 및 날짜·문자열 값 왕복 미검증 |
+| 다음 단계 | 사용자 승인 대기. 루틴 목록·등록 등 후속 기능은 아직 진행하지 않음 |
+
+이번 변경은 문서 2개와 승인된 DB 적용이다. 기존 README.md 변경 및 미추적 Migration/도구 매니페스트는 보존했으며 커밋하지 않았다. study_info와 Windows MariaDB에는 변경 명령을 실행하지 않았다.

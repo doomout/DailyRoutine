@@ -1,3 +1,5 @@
+> 이 문서는 날짜별 학습 이력이다. 아래 초기 조사 내용은 당시 상태이며, 최신 상태는 마지막의 2026-09-18 InitialCreate 적용 기록과 PROJECT_STATUS.md를 따른다.
+
 # EF Core와 로컬 MySQL 연결 사전 조사
 
 조사일: 2026-09-15
@@ -541,3 +543,66 @@ DB가 없다면 **연결 설정 준비**와 **대상 DB에 실제 접속 성공*
 승인 후의 최소 변경 후보는 appsettings.Development.json의 비밀 없는 키, csproj의 UserSecretsId, Program.cs의 Context/Provider 등록이다. 실제 비밀은 사용자가 로컬에 입력한다. Routine/Context 구조 변경, Migration, 테이블 생성, Controller/Service/View 추가는 포함하지 않는다.
 
 이번 수행 결과: **연결 방법 조사와 gpt.md 기록 완료. 애플리케이션 구현·DB 접속·서비스/컨테이너 조작 없음. 필요한 접속 정보와 다음 구현에 대한 사용자 승인 대기.**
+
+---
+
+## 2026-09-18 — InitialCreate 실제 DB 적용 및 스키마 검증
+
+### 연결 준비에서 적용까지
+
+DailyRoutine 전용 MySQL 8.4.11 컨테이너 dailyroutine-mysql과 볼륨 dailyroutine-mysql-data를 사용한다. 호스트 127.0.0.1:3308은 컨테이너 3306에 연결된다. DB는 dailyroutine, 일반 사용자는 dailyroutine_user다. 기존 study_info Docker 환경과 Windows MariaDB는 수정하지 않았다.
+
+프로젝트에는 UserSecretsId가 있고 실제 연결 문자열은 User Secrets의 ConnectionStrings:DefaultConnection에만 저장되어 있다. 비밀번호는 .env에서 준비했으며 .env는 Git에서 제외된다. 이 문서에는 실제 비밀번호나 연결 문자열을 기록하지 않는다. Program.cs는 GetConnectionString("DefaultConnection"), AddDbContext<ApplicationDbContext>(), options.UseMySQL(connectionString)을 사용한다.
+
+EF Core 및 Design 10.0.12, Oracle MySql.EntityFrameworkCore 10.0.9를 사용한다. 전역 dotnet-ef 6.0.0을 변경하지 않고 프로젝트의 dotnet-tools.json에 로컬 dotnet-ef 10.0.12를 설치했다. InitialCreate 생성 단계에서는 DB가 비어 있었고, 다음 파일만 생성했다.
+
+- Migrations/20260917145307_InitialCreate.cs
+- Migrations/20260917145307_InitialCreate.Designer.cs
+- Migrations/ApplicationDbContextModelSnapshot.cs
+
+이번에 사용자의 DB 적용 승인을 받아 다음 명령을 실행했다.
+
+```powershell
+dotnet ef database update InitialCreate --project DailyRoutine.csproj --startup-project DailyRoutine.csproj --context ApplicationDbContext -- --environment Development
+```
+
+User Secrets의 대상 호스트·포트·DB·일반 사용자 및 .env와의 비밀번호 일치를 값 출력 없이 확인했다. 사전 확인 스크립트는 PowerShell의 DbConnectionStringBuilder 프로퍼티 처리 문제를 set_ConnectionString 호출로 수정했다. 최초 샌드박스 실행에서는 Windows TLS 자격 증명 오류가 발생했으나, 승인된 권한으로 동일 연결 설정을 사용해 재실행하니 빌드와 적용이 성공했다. TLS를 끄거나 비밀 설정을 변경하지 않았다.
+
+### 실제 DB 검증 결과
+
+일반 사용자 dailyroutine_user@%로 조회했다. MySQL 버전은 8.4.11이다.
+
+| 항목 | 확인 결과 |
+|---|---|
+| 테이블 목록 | Routines, __EFMigrationsHistory |
+| 스토리지 엔진 | 두 테이블 모두 InnoDB |
+| DB 및 테이블 문자셋 | utf8mb4 |
+| DB 및 테이블 Collation | utf8mb4_unicode_ci |
+| 적용된 MigrationId | 20260917145307_InitialCreate |
+| 이력 ProductVersion | 10.0.12 |
+| Routines 데이터 수 | 0건 |
+
+| 실제 컬럼명 | MySQL 타입 | NULL 허용 | 제약 |
+|---|---|---|---|
+| Id | int | 아니요 | PRIMARY KEY, AUTO_INCREMENT |
+| Name | longtext | 아니요 | utf8mb4_unicode_ci |
+| Description | longtext | 예 | utf8mb4_unicode_ci |
+| StartDate | date | 아니요 | 별도 기본값 없음 |
+| EndDate | date | 예 | DEFAULT NULL |
+| CreatedAtUtc | datetime(6) | 아니요 | DB 기본값 없음 |
+| UpdatedAtUtc | datetime(6) | 예 | DEFAULT NULL |
+
+다음은 실행한 생성 SQL이 아니라 SHOW CREATE TABLE Routines가 반환한 실제 정의다.
+
+```sql
+CREATE TABLE `Routines` (
+  `Id` int NOT NULL AUTO_INCREMENT,
+  `Name` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `Description` longtext COLLATE utf8mb4_unicode_ci,
+  `StartDate` date NOT NULL,
+  `EndDate` date DEFAULT NULL,
+  `CreatedAtUtc` datetime(6) NOT NULL,
+  `UpdatedAtUtc` datetime(6) DEFAULT NULL,
+  PRIMARY KEY (`Id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
