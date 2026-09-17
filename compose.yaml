@@ -1,0 +1,32 @@
+name: dailyroutine
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: dailyroutine-mysql
+    restart: unless-stopped
+    network_mode: bridge
+    ports:
+      - "127.0.0.1:3308:3306"
+    # Read credentials directly from the only plaintext credential file.
+    # Do not put passwords into Compose or Docker container configuration.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - 'set -a; source /run/dailyroutine.env; set +a; exec /usr/local/bin/docker-entrypoint.sh mysqld --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci'
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - type: bind
+        source: ./.env
+        target: /run/dailyroutine.env
+        read_only: true
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'source /run/dailyroutine.env; MYSQL_PWD=$$MYSQL_PASSWORD mysql --protocol=TCP --host=127.0.0.1 --user=$$MYSQL_USER --database=$$MYSQL_DATABASE --silent --execute=\"SELECT 1\" >/dev/null 2>&1'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+volumes:
+  mysql_data:
+    name: dailyroutine-mysql-data
