@@ -1,4 +1,5 @@
 using DailyRoutine.Data;
+using DailyRoutine.Services;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,10 +10,15 @@ if (string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException("ConnectionStrings:DefaultConnection is required.");
 }
 
+// DI 컨테이너가 ApplicationDbContext를 생성할 때 사용할 MySQL 연결을 설정한다.
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseMySQL(connectionString));
 
-// Add services to the container.
+// HTTP 요청마다 RoutineService 인스턴스를 하나 생성하고 같은 요청 안에서 공유한다.
+// 생성자에 필요한 ApplicationDbContext도 DI 컨테이너가 주입한다.
+builder.Services.AddScoped<RoutineService>();
+
+// Controller와 View를 사용하는 MVC 기능을 DI 컨테이너에 등록한다.
 builder.Services.AddControllersWithViews();
 
 var app = builder.Build();
