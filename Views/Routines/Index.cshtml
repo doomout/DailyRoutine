@@ -1,0 +1,43 @@
+@model List<DailyRoutine.Models.Entities.Routine>
+
+@{
+    ViewData["Title"] = "루틴 목록";
+}
+
+<h1>루틴 목록</h1>
+
+@* Controller에서 전달한 목록이 비어 있으면 안내 메시지를 표시한다. *@
+@if (Model.Count == 0)
+{
+    <p class="text-muted">등록된 루틴이 없습니다.</p>
+}
+else
+{
+    @* 기존 Layout에서 불러오는 Bootstrap으로 목록 테이블을 꾸민다. *@
+    <div class="table-responsive">
+        <table class="table table-striped table-bordered">
+            <thead>
+                <tr>
+                    <th scope="col">Id</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">Description</th>
+                    <th scope="col">StartDate</th>
+                    <th scope="col">EndDate</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var routine in Model)
+                {
+                    <tr>
+                        <td>@routine.Id</td>
+                        <td>@routine.Name</td>
+                        <td>@routine.Description</td>
+                        <td>@routine.StartDate.ToString("yyyy-MM-dd")</td>
+                        @* 종료일이 없으면 '종료일 없음'으로 표시한다. *@
+                        <td>@(routine.EndDate?.ToString("yyyy-MM-dd") ?? "종료일 없음")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
